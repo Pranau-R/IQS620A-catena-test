@@ -21,12 +21,12 @@
 #include "IQS62x.h"
 #include "IQS620_Init.h"
 #include "Types.h"
-#include "math.h"
+//#include "math.h"
 #include "limits.h"
 #include <stm32_eeprom.h>
 //#include "src/Display/Display.h"
 #include "src/I2C/I2C.h"
-
+#include <Wire.h>
 
 /*	Global defines	-----------------------------------------------------------*/
 
@@ -231,22 +231,39 @@ bool modeEntry = true;
 
 // Global to indicate that calibration was done.
 
+/*bool writeRegister()
+	{
+    Wire.beginTransmission((uint8_t) I2C_ADDRESS);
+    Wire.write(command);
+    Wire.write(parameter);
+
+    if (Wire.endTransmission() != 0)
+        {
+        return false;
+        }
+
+    return true;
+    }*/
+
 //The setup function is called once at startup of the sketch
 void setup()
 {
 	// Setup Leds
 	init_mode_leds();
  
-#ifdef DEBUG
+//#ifdef DEBUG
 	//Setup serial comms
 	Serial.begin(9600);
-#endif
+//#endif
 
+	Wire.begin();
+
+    Serial.println ("**** This is an Example for IQS620AEV1 ****");
 	// Check which IC we are using
-	while(!i2c.isDeviceReady());	// Wait for device to begome ready
+	while(!Wire.available());	// Wait for device to begome ready
 
 	// Get the Version info
-	i2c.read(VERSION_INFO, 3, buffer, I2C_Stop);
+	Wire.read();
 	// Set the appropriate IC
 	if(buffer[0] == IQS620_PRODUCT_NR)
 	{
@@ -272,7 +289,7 @@ void setup()
 	else
 	{
 		//disp.writeError(2);
-		//Serial.println("Err invalid IC...");
+		Serial.println("Err invalid IC...");
 		while(1);
 	}
   //Serial.println(ICType);
@@ -283,6 +300,7 @@ void setup()
 	digitalWrite(Leds[(uint8_t)Mode], HIGH);
 
 	//disp.write(display_number = (((uint8_t)Mode%4)+1)*1111);    // Write mode to display
+	//Serial.print("Mode : ");
   delay(1000);
   
 	// Initialise Mode timer
@@ -306,21 +324,21 @@ void loop()
 
 	// Read IQS device for information
 	// Acquire all the necessary data
-	if(i2c.isDeviceReady())
+	if(Wire.available())
 	{
 		if(ICType == IQS620)
 		{
 			// Read version number to insure we still have the correct device attached - otherwise, do setup
-			res = i2c.read(VERSION_INFO, 3, buffer, I2C_Repeat_Start);
+			res = Wire.read();
 
 			// System flags, Global Events and PXS UI Flags - 9 bytes
-			res |= i2c.read(SYSTEM_FLAGS, 9, &iqs620.SystemFlags.SystemFlags, I2C_Repeat_Start);
+			res |= Wire.read();
 
 			// Read PXS Channel Data - 12 bytes
-			res |= i2c.read(CHANNEL_DATA, 12, &iqs620.Ch[0].Ch_Low, I2C_Repeat_Start);
+			res |= Wire.read();
 
 			// Read LTA value of Channel 1 for Movement mode
-			res |= i2c.read(LTA+2, 2, &iqs620.LTA1.Ch_Low, I2C_Stop);
+			res |= Wire.read();
 
 			// Set the appropriate IC
 			if(buffer[0] == IQS620_PRODUCT_NR)
@@ -363,16 +381,16 @@ void loop()
 		else if(ICType == IQS620n)
 		{
 			// Read version number to insure we still have the correct device attached - otherwise, do setup
-			res = i2c.read(VERSION_INFO, 3, buffer, I2C_Repeat_Start);
+			res = Wire.read();
 
 			// System flags, Global Events and PXS UI Flags - 9 bytes
-			res |= i2c.read(SYSTEM_FLAGS, 12, &iqs620n.SystemFlags.SystemFlags, I2C_Repeat_Start);
+			res |= Wire.read();
 
 			// Read PXS Channel Data - 12 bytes
-			res |= i2c.read(CHANNEL_DATA, 12, &iqs620n.Ch[0].Ch_Low, I2C_Repeat_Start);
+			res |= Wire.read();
 
 			// Read LTA value of Channel 1 for Movement mode
-			res |= i2c.read(LTA+2, 2, &iqs620n.LTA1.Ch_Low, I2C_Stop);
+			res |= Wire.read();
 
 			// Set the appropriate IC
 			if(buffer[0] == IQS620_PRODUCT_NR)
@@ -670,6 +688,9 @@ void loop()
 		if(res)
    {
 			//disp.writeError(res);
+			//Serial.print("res : ");
+			//Serial.println(res);
+
       clear_mode_leds();
    }
 
@@ -685,6 +706,8 @@ void loop()
 	if(timerExpired(&ErrorTimer))
  {
 		//disp.writeError(ERR_TIMEOUT);
+		//Serial.print("Timer Expired : ");
+		//Serial.println(ERR_TIMEOUT);
     clear_mode_leds();
  }
 
@@ -749,6 +772,9 @@ void loop()
       Mode = Mode_1;
       digitalWrite(Leds[(uint8_t)Mode], HIGH);
       //disp.write(display_number = (((uint8_t)Mode%4)+1)*1111);    // Write mode to display
+	  //display_number = (((uint8_t)Mode%4)+1)*1111;
+	  //Serial.print(Mode : );
+	  //Serial.println(display_number);
       setTimer(&Mode_Switch_Timer);	
 		}
 
@@ -760,9 +786,17 @@ void loop()
 	{
 		// Minimize write to display
 		if(displayState == Display_Int)
+    {
 			//disp.write(display_number);
+    }
+			//Serial.println("Display Number : ");
+			//Serial.println(display_number);
 		else
+      {
 			//disp.write(display_string);
+      }
+			//Serial.println("Display String : ");
+			//Serial.println(display_string);
 	}
 }
 
@@ -782,7 +816,7 @@ void process_IQS620_events()
 		iqs_setup();
 	
 		// Check whether setup was a success
-		// Serial.println("Reset");
+		Serial.println("Reset");
 		return;
 	}
 	// Run a state machine
@@ -832,7 +866,7 @@ void process_IQS620n_events()
 		iqs_setup();
 
     // Check whether setup was a success
-    // Serial.println("Reset");
+    	Serial.println("Reset");
 		return;
 	}
 
@@ -882,7 +916,7 @@ void process_IQS621_events(bool *refreshDisplay)
 		iqs_setup();
 
 		// Check whether setup was a success
-		//Serial.println("Reset");
+		Serial.println("Reset");
 		return;
 	}
 
@@ -909,7 +943,7 @@ void process_IQS621_events(bool *refreshDisplay)
 			{
 				coilCheck = false;
 				redo_ati();
-				//Serial.println("Redo ATI");
+				Serial.println("Redo ATI");
 				displayState = Display_Int;
 				*refreshDisplay = true;
 
@@ -942,7 +976,7 @@ void process_IQS621_events(bool *refreshDisplay)
 			{
 				coilCheck = false;
 				redo_ati();
-				//Serial.println("Redo ATI");
+				Serial.println("Redo ATI");
 				displayState = Display_Int;
 				*refreshDisplay = true;
 
@@ -999,7 +1033,7 @@ void process_IQS622_events(bool *refreshDisplay)
     iqs_setup();
 
     // Check whether setup was a success
-    //Serial.println("Reset");
+    Serial.println("Reset");
    return;
   }
 
@@ -1048,7 +1082,7 @@ void process_IQS624_events(bool *refreshDisplay)
 		iqs_setup();
 
 		// Check whether setup was a success
-		//Serial.println("Reset");
+		Serial.println("Reset");
 		return;
 	}
 
@@ -1107,7 +1141,7 @@ void process_IQS624n_events(bool *refreshDisplay)
     iqs_setup();
 
     // Check whether setup was a success
-    //Serial.println("Reset");
+    Serial.println("Reset");
     return;
   }
  
@@ -1166,7 +1200,7 @@ void process_IQS625_events(bool *refreshDisplay)
     iqs_setup();
 
     // Check whether setup was a success
-    //Serial.println("Reset");
+    Serial.println("Reset");
     return;
   }
  
@@ -1329,11 +1363,14 @@ void iqs_setup()
   setTimer(&MainTimer);
 
   // Wait for IC to become ready - a timeout should exit this
-  while(!i2c.isDeviceReady());
+  while(!Wire.available());
 
   if(ICType == IQS620)
   {
-    sprintf(display_string, "620-");
+    //sprintf(display_string, "620-");
+	Serial.print (display_string);
+	Serial.print (" 620");
+	Serial.println();
     //disp.write(display_string);
     delay(1000); //Wait here for device splash on disp
     // setup device
@@ -1343,16 +1380,23 @@ void iqs_setup()
   else if(ICType == IQS620n)
   {
     sprintf(display_string, "620n");
+	//Serial.print (display_string);
+	//Serial.print (" 620n");
+	//Serial.println();
     //disp.write(display_string);
+    Serial.println ("620n Found!");
     delay(1000); //Wait here for device splash on disp
     // setup device
     res = setup_iqs620n();
-    Serial.println(res);
+    //Serial.println(res);
   }
 
   else if(ICType == IQS621)
   {
-    sprintf(display_string, "621-");
+    //sprintf(display_string, "621-");
+	Serial.print (display_string);
+	Serial.print (" 621-");
+	Serial.println();
     //disp.write(display_string);
     delay(1000); //Wait here for device splash on disp
     // setup as capacitive by default
@@ -1361,7 +1405,10 @@ void iqs_setup()
 
   else if(ICType == IQS622)
   {
-    sprintf(display_string, "622-");
+    //sprintf(display_string, "622-");
+	Serial.print (display_string);
+	Serial.print (" 622");
+	Serial.println();
     //disp.write(display_string);
     delay(1000); //Wait here for device splash on disp
     // setup as capacitive & IR
@@ -1370,7 +1417,10 @@ void iqs_setup()
 
   else if(ICType == IQS624)
   {
-    sprintf(display_string, "624-");
+    //sprintf(display_string, "624-");
+	Serial.print (display_string);
+	Serial.print (" 624");
+	Serial.println();
     //disp.write(display_string);
     delay(1000); //Wait here for device splash on disp
     // setup as capacitive & hall rotation by default
@@ -1379,7 +1429,10 @@ void iqs_setup()
  
   else if(ICType == IQS624n)
   {
-    sprintf(display_string, "624n");
+    //sprintf(display_string, "624n");
+	Serial.print (display_string);
+	Serial.print (" 624n");
+	Serial.println();
     //disp.write(display_string);
     delay(1000); //Wait here for device splash on disp
     // setup as capacitive & hall rotation by default
@@ -1388,7 +1441,10 @@ void iqs_setup()
 
   else if(ICType == IQS625)
   {
-    sprintf(display_string, "625-");
+    //sprintf(display_string, "625-");
+	Serial.print (display_string);
+	Serial.print (" 625");
+	Serial.println();
     //disp.write(display_string);
     delay(1000); //Wait here for device splash on disp
     // setup as capacitive & hall rotation by default
@@ -1417,30 +1473,30 @@ uint8_t setup_iqs620()
 {
   uint8_t res = 0;
 
-  while(!i2c.isDeviceReady());
+  while(!Wire.available());
   
-    res |= i2c.write(DEV_SETTINGS, sizeof(DevSetup), (uint8_t *)DevSetup, I2C_Repeat_Start);
+    res |= Wire.write(DEV_SETTINGS);
 
-    res |= i2c.write(PXS_SETTINGS_0, sizeof(PXS_Setup_0), (uint8_t *)PXS_Setup_0, I2C_Repeat_Start);
+    res |= Wire.write(PXS_SETTINGS_0);
 
-    res |= i2c.write(PXS_SETTINGS_1, sizeof(PXS_Setup_1), (uint8_t *)PXS_Setup_1, I2C_Repeat_Start);
+    res |= Wire.write(PXS_SETTINGS_1);
 
-    res |= i2c.write(PXS_UI_SETTINGS, sizeof(PXSUi), (uint8_t *)PXSUi, I2C_Repeat_Start);
+    res |= Wire.write(PXS_UI_SETTINGS);
 
-    res |= i2c.write(SAR_UI_SETTINGS, sizeof(SARUi), (uint8_t *)SARUi, I2C_Repeat_Start);
+    res |= Wire.write(SAR_UI_SETTINGS);
 
-    res |= i2c.write(METAL_UI_SETTINGS, sizeof(MetalDetect), (uint8_t *)MetalDetect, I2C_Repeat_Start);
+    res |= Wire.write(METAL_UI_SETTINGS);
 
-    res |= i2c.write(HALL_SENS_SETTINGS, sizeof(Hall_Sens), (uint8_t *)Hall_Sens, I2C_Repeat_Start);
+    res |= Wire.write(HALL_SENS_SETTINGS);
 
-    res |= i2c.write(HALL_UI_SETTINGS, sizeof(Hall_UI), (uint8_t *)Hall_UI, I2C_Stop);
+    res |= Wire.write(HALL_UI_SETTINGS);
 
     // Wait for Redo Ati to complete
     do {
       // Wait for device to become ready
-      while(!i2c.isDeviceReady());
+      while(!Wire.available());
 
-      res |= i2c.read(SYSTEM_FLAGS, 1, &iqs620.SystemFlags.SystemFlags, I2C_Stop);
+      res |= Wire.read();
     } while (!res && iqs620.SystemFlags.InAti);
   
   return res;
@@ -1461,11 +1517,11 @@ void sar_raw_mode()
 	 * Prox output on LED1
 	 */
 	display_number = iqs620.Ch[0].Ch;	// Display Channel Data
-/*
+
   Serial.print("SAR counts:");
   Serial.print("\t");
   Serial.println(display_number);
-*/
+
 	digitalWrite(LED_1, iqs620.PXSUIFlags.CH0_P_Out);			// Switch Prox led
 }
 
@@ -1617,32 +1673,32 @@ uint8_t setup_iqs620n()
 {
   uint8_t res = 0;
 
-  while(!i2c.isDeviceReady());
+  while(!Wire.available());
 
-    res |= i2c.write(DEV_SETTINGS, sizeof(nDevSetup), (uint8_t *)nDevSetup, I2C_Repeat_Start);
+    res |= Wire.write(DEV_SETTINGS);
 
-    res |= i2c.write(PXS_SETTINGS_0, sizeof(nPXS_Setup_0), (uint8_t *)nPXS_Setup_0, I2C_Repeat_Start);
+    res |= Wire.write(PXS_SETTINGS_0);
 
-    res |= i2c.write(PXS_SETTINGS_1, sizeof(nPXS_Setup_1), (uint8_t *)nPXS_Setup_1, I2C_Repeat_Start);
+    res |= Wire.write(PXS_SETTINGS_1);
 
-    res |= i2c.write(PXS_UI_SETTINGS, sizeof(nPXSUi), (uint8_t *)nPXSUi, I2C_Repeat_Start);
+    res |= Wire.write(PXS_UI_SETTINGS);
 
-    res |= i2c.write(SAR_UI_SETTINGS, sizeof(nSARUi), (uint8_t *)nSARUi, I2C_Repeat_Start);
+    res |= Wire.write(SAR_UI_SETTINGS);
 
-    res |= i2c.write(METAL_UI_SETTINGS, sizeof(nMetalDetect), (uint8_t *)nMetalDetect, I2C_Repeat_Start);
+    res |= Wire.write(METAL_UI_SETTINGS);
 
-    res |= i2c.write(HALL_SENS_SETTINGS, sizeof(nHall_Sens), (uint8_t *)nHall_Sens, I2C_Repeat_Start);
+    res |= Wire.write(HALL_SENS_SETTINGS);
 
-    res |= i2c.write(HALL_UI_SETTINGS, sizeof(nHall_UI), (uint8_t *)nHall_UI, I2C_Repeat_Start);
+    res |= Wire.write(HALL_UI_SETTINGS);
 
-    res |= i2c.write(TEMP_UI_SETTINGS, sizeof(nTemp_UI), (uint8_t *)nTemp_UI, I2C_Stop);
+    res |= Wire.write(TEMP_UI_SETTINGS);
 
     // Wait for Redo Ati to complete
     do {
       // Wait for device to become ready
-      while(!i2c.isDeviceReady());
+      while(!Wire.available());
 
-      res |= i2c.read(SYSTEM_FLAGS, 1, &iqs620n.SystemFlags.SystemFlags, I2C_Stop);
+      res |= Wire.read();
     } while (!res && iqs620n.SystemFlags.InAti);
   
   return res;
@@ -1663,6 +1719,10 @@ void nsar_raw_mode()
 	 * Prox output on LED1
 	 */
 	display_number = iqs620n.Ch[0].Ch;	// Display Channel Data
+
+    Serial.print("SAR counts:");
+    Serial.print("\t");
+    Serial.println(display_number);
 
 	digitalWrite(LED_1, iqs620n.PXSUIFlags.CH0_P_Out);			// Switch Prox led
 
@@ -1687,15 +1747,15 @@ void nmovement_raw_mode()
 		displayState = Display_Int;
 		display_number = iqs620n.Ch[1].Ch;	// Display Channel 1 Data
 
-    //Serial.print("Movement:  ");
-    //Serial.println(display_number);
+    Serial.print("Movement:  ");
+    Serial.println(display_number);
 	}
 	else
 	{
 		displayState = Display_String;
 		sprintf(display_string, "----");
 
-    //Serial.println("Movement:  -");
+    Serial.println("Movement:  -");
 	}
 
 	digitalWrite(LED_2, iqs620n.SARMetalFlags.Movement);			// Switch Movement led
@@ -1738,15 +1798,13 @@ void ntemp_mode()
 
  displayState = Display_String;
  tempDelta = (c-a_b*(float)iqs620n.Ch[3].Ch)/2;
- tempdec = abs(tempDelta*10 - floor(tempDelta)*10);
-
- /*
+ tempdec = abs((long long)(tempDelta*10 - floor(tempDelta)*10));
+ 
  Serial.print("Temperature: ");
  Serial.print(tempDelta);
  Serial.print("\tDelta: ");
  Serial.print(tempdec);
  Serial.println();
- */
  
  sprintf(display_string, "%2d%c%1d",int(tempDelta),'*',tempdec);
 #else
@@ -1777,15 +1835,15 @@ void nhall_raw_mode()
 	 * Direction of Hall - fill display with nnnn or ssss for 0.5-1s
 	 */
 	display_number = iqs620n.HallValue.HallValue;	// Display Hall Value
-/*
+
   Serial.print("Hall-effect amplitude:  ");
   Serial.print(display_number);
   Serial.print("\t");
-*/
+
 	// upper leds for North
 	if(iqs620n.HallFlags.Hall_N_S)
 	{
-    //Serial.println("Direction: N");
+    Serial.println("Direction: N");
   
 		digitalWrite(LED_3, iqs620n.HallFlags.Hall_Prox);
 		digitalWrite(LED_4, iqs620n.HallFlags.Hall_Touch);
@@ -1796,7 +1854,7 @@ void nhall_raw_mode()
 	// Lower leds for South
 	else
 	{
-    //Serial.println("Direction: S");
+    Serial.println("Direction: S");
     
 		digitalWrite(LED_1, iqs620n.HallFlags.Hall_Touch);
 		digitalWrite(LED_2, iqs620n.HallFlags.Hall_Prox);
@@ -2106,7 +2164,9 @@ void light_darkMode()
 			setTimer(&Mode_Switch_Timer);
 		}
 		else
+            {
 			//disp.writeError(res);
+            }
 	}
 
 	// Reset display timeout to default
@@ -2322,11 +2382,11 @@ uint8_t setup_iqs622(Setup_Type_e setupType)
     while(!i2c.isDeviceReady());    // Device is not yet ready
 
     res |= i2c.read(SYSTEM_FLAGS, 1, &iqs622.SystemFlags.SystemFlags, I2C_Stop);
-  /*
+
           Serial.print("System Flags");
           Serial.print("\t");
           Serial.println(iqs622.SystemFlags.SystemFlags, HEX);
-  */
+
   } while (!res && iqs622.SystemFlags.InAti);
 
   return res;
@@ -2346,8 +2406,8 @@ void IRMode()
   if(iqs622.IRValue.IRValue < 9999)
   {
     display_number = (iqs622.IRValue.IRValue);
-    //Serial.print("IQS622: IR Value = ");
-    //Serial.println(iqs622.IRValue.IRValue);
+	Serial.print("IQS622: IR Value = ");
+    Serial.println(iqs622.IRValue.IRValue);
   }
   else
   {
@@ -2407,12 +2467,12 @@ void IRMode()
 // Displays 0-10 (only lower nibble) as the IR output on the 7-segment display
 void basicIRMode()
 {
-  /*
+
   Serial.print("IR value : ");
   Serial.print(0x0F & iqs622.IRFlags.IRFlags);
   Serial.print("\tHallFlags value : 0x");
   Serial.println(0x07 & iqs622.HallFlags.HallFlags);
-  */
+
   display_number = (0x0F & iqs622.IRFlags.IRFlags);
 
   // Also format the North South bit, if a magnet is present
@@ -2461,12 +2521,12 @@ void basicIRMode()
 // Displays 0-10 (only lower nibble) as the ALS output on the 7-segment display
 void basicALSMode()
 {
-  /*
+
   Serial.print("ALS value : ");
   Serial.print(0x0F & iqs622.ALSFlags.ALSFlags);
   Serial.print("\tHallFlags value : 0x");
   Serial.println(0x07 & iqs622.HallFlags.HallFlags);
-  */
+
   display_number = (0x0F & iqs622.ALSFlags.ALSFlags);
 
   // Also format the North South bit, if a magnet is present
@@ -2534,10 +2594,10 @@ uint8_t setup_iqs624()
     res |= i2c.write(DEV_SETTINGS+2, 2, buffer, I2C_Repeat_Start);
 
     // Check to see if phase angles were written
-    if(EEPROM.eeprom_read_byte(WRITE_FLAG_ADDRESS) == 0x01)
+    if(eeprom_read_byte(WRITE_FLAG_ADDRESS) == 0x01)
     {
-      buffer[0] = EEPROM.eeprom_read_byte(SINE_PHASE_ADDRESS);
-      buffer[1] = EEPROM.eeprom_read_byte(COS_PHASE_ADDRESS);
+      buffer[0] = eeprom_read_byte(SINE_PHASE_ADDRESS);
+      buffer[1] = eeprom_read_byte(COS_PHASE_ADDRESS);
       res |= i2c.write(HALL_SIN, 2, buffer, I2C_Repeat_Start);
     }
     else {
@@ -2550,10 +2610,10 @@ uint8_t setup_iqs624()
     }
 
     // Write Settings if valid
-    if(EEPROM.eeprom_read_byte(ATI_FLAG_ADDRESS) == 0x01)
+    if(eeprom_read_byte(ATI_FLAG_ADDRESS) == 0x01)
     {
-      iqs624.HallAtiSettings_CH2_CH3.ATISettings = EEPROM.eeprom_read_byte(HALL_ATI_CH2_CH3_ADDRESS);
-      iqs624.HallAtiSettings_CH4_CH5.ATISettings = EEPROM.eeprom_read_byte(HALL_ATI_CH4_CH5_ADDRESS);
+      iqs624.HallAtiSettings_CH2_CH3.ATISettings = eeprom_read_byte(HALL_ATI_CH2_CH3_ADDRESS);
+      iqs624.HallAtiSettings_CH4_CH5.ATISettings = eeprom_read_byte(HALL_ATI_CH4_CH5_ADDRESS);
       res |= i2c.write(0x72, 2, &iqs624.HallAtiSettings_CH2_CH3.ATISettings, I2C_Repeat_Start);
     }
 
@@ -2619,10 +2679,10 @@ uint8_t setup_iqs624n()
     res |= i2c.write(DEV_SETTINGS+2, 2, buffer, I2C_Repeat_Start);
 
     // Check to see if phase angles were written
-    if(EEPROM.eeprom_read_byte(WRITE_FLAG_ADDRESS) == 0x01)
+    if(eeprom_read_byte(WRITE_FLAG_ADDRESS) == 0x01)
     {
-      buffer[0] = EEPROM.eeprom_read_byte(SINE_PHASE_ADDRESS);
-      buffer[1] = EEPROM.eeprom_read_byte(COS_PHASE_ADDRESS);
+      buffer[0] = eeprom_read_byte(SINE_PHASE_ADDRESS);
+      buffer[1] = eeprom_read_byte(COS_PHASE_ADDRESS);
       res |= i2c.write(HALL_SIN, 2, buffer, I2C_Repeat_Start);
     }
     else
@@ -2635,10 +2695,10 @@ uint8_t setup_iqs624n()
     }
 
     // Write Settings if valid
-    if(EEPROM.eeprom_read_byte(ATI_FLAG_ADDRESS) == 0x01)
+    if(eeprom_read_byte(ATI_FLAG_ADDRESS) == 0x01)
     {
-      iqs624.HallAtiSettings_CH2_CH3.ATISettings = EEPROM.eeprom_read_byte(HALL_ATI_CH2_CH3_ADDRESS);
-      iqs624.HallAtiSettings_CH4_CH5.ATISettings = EEPROM.eeprom_read_byte(HALL_ATI_CH4_CH5_ADDRESS);
+      iqs624.HallAtiSettings_CH2_CH3.ATISettings = eeprom_read_byte(HALL_ATI_CH2_CH3_ADDRESS);
+      iqs624.HallAtiSettings_CH4_CH5.ATISettings = eeprom_read_byte(HALL_ATI_CH4_CH5_ADDRESS);
       res |= i2c.write(0x72, 2, &iqs624n.HallAtiSettings_CH2_CH3.ATISettings, I2C_Repeat_Start);
     }
 
@@ -2816,7 +2876,7 @@ void nspeedMode(bool *refreshDisplay){
       rpm_refresh = true;
     }
 
-    if (abs(display_number) < abs(speed_rpm)){
+    if (abs((long long)display_number) < abs((long long)speed_rpm)){
 
       // Negative movement switches on left 2 leds
       if(iqs624n.HallFlags.Movement_Dir)
@@ -2886,7 +2946,7 @@ void nrawMode(bool *refreshDisplay){
   // Should we refresh the display? If the value hasn't changed, we do not need to update display
   display_number == iqs624n.FillHallDegrees.HallDegrees ? *refreshDisplay = false : *refreshDisplay = true;
 
-  //  Serial.println(tempDegree);
+    Serial.println(tempDegree);
 
   display_number = iqs624n.FillHallDegrees.HallDegrees;
 }
@@ -3025,7 +3085,7 @@ void speedMode(bool *refreshDisplay){
 			rpm_refresh = true;
 		}
 
-		if (abs(display_number) < abs(speed_rpm)){
+		if (abs((long long)display_number) < abs((long long)speed_rpm)){
 
 			// Negative movement switches on left 2 leds
 			if(iqs624.HallFlags.Movement_Dir)
@@ -3113,7 +3173,7 @@ void rawMode(bool *refreshDisplay){
 	// Should we refresh the display? If the value hasn't changed, we do not need to update display
 	display_number == tempDegree ? *refreshDisplay = false : *refreshDisplay = true;
 
-	//	Serial.println(tempDegree);
+		Serial.println(tempDegree);
 
 	display_number = tempDegree;
 }
@@ -3149,9 +3209,9 @@ void run_ati_algo(void)
 			modeEntry = false;
 
 			// Wipe that side of the EEPROM
-			EEPROM.eeprom_write_byte(ATI_FLAG_ADDRESS, 0x00);
-			EEPROM.eeprom_write_byte(HALL_ATI_CH2_CH3_ADDRESS, 0);
-			EEPROM.eeprom_write_byte(HALL_ATI_CH4_CH5_ADDRESS, 0);
+			eeprom_write_byte(ATI_FLAG_ADDRESS, 0x00);
+			eeprom_write_byte(HALL_ATI_CH2_CH3_ADDRESS, 0);
+			eeprom_write_byte(HALL_ATI_CH4_CH5_ADDRESS, 0);
 
 
 			counter = 0;
@@ -3190,7 +3250,7 @@ void run_ati_algo(void)
 			// Read base values and target
 			i2c.read(0x72, 2, &iqs624.HallAtiSettings_CH2_CH3.ATISettings, I2C_Stop);
 
-			//Serial.println("ATI - Rotate");
+			Serial.println("ATI - Rotate");
 		}
 
 		// Get Max and values
@@ -3215,14 +3275,13 @@ void run_ati_algo(void)
 				countMaxes++;
 				algoSM++;	// Move to next state
 
-       /*
 				Serial.println("");
 				Serial.println("Noise: ");
 				Serial.println(noise);
 				Serial.println("Max: ");
 				Serial.println(maxCH2);
 				Serial.println(maxCH3);
-       */
+
 				break;
 		}
 
@@ -3238,7 +3297,7 @@ void run_ati_algo(void)
 				{
 					counter = 0;
 					binCounter_1++;
-					//Serial.println("Bin Quad 1");
+					Serial.println("Bin Quad 1");
 				}
 				break;
 
@@ -3248,7 +3307,7 @@ void run_ati_algo(void)
 				{
 					counter = 0;
 					binCounter_2++;
-					//Serial.println("Bin Quad 2");
+					Serial.println("Bin Quad 2");
 				}
 				break;
 
@@ -3258,7 +3317,7 @@ void run_ati_algo(void)
 				{
 					counter = 0;
 					binCounter_3++;
-					//Serial.println("Bin Quad 3");
+					Serial.println("Bin Quad 3");
 				}
 				break;
 
@@ -3268,7 +3327,7 @@ void run_ati_algo(void)
 				{
 					counter = 0;
 					binCounter_4++;
-					//Serial.println("Bin Quad 4");
+					Serial.println("Bin Quad 4");
 				}
 				break;
 		}
@@ -3286,7 +3345,7 @@ void run_ati_algo(void)
 			Loop = Display_Info;
 			sprintf(display_string, "stop");
 
-			//Serial.println("ATI - Wait");
+			Serial.println("ATI - Wait");
 		}
 
 
@@ -3297,9 +3356,9 @@ void run_ati_algo(void)
 		deltaCH2 = (int16_t)(maxCH2-COUNT_VALUE);
 		deltaCH3 = (int16_t)(maxCH3-COUNT_VALUE);
 
-		if((abs(deltaCH2) < BASE_THRESHOLD))
+		if(abs((long long)(deltaCH2)) < BASE_THRESHOLD)
 		{
-			if (((abs(deltaCH2) > STOP_THRESHOLD)))
+			if (abs((long long)(deltaCH2)) > STOP_THRESHOLD)
 			{
 				// Let us move the target
 				if(deltaCH2 < 0) {
@@ -3333,17 +3392,17 @@ void run_ati_algo(void)
 				i2c.write(0x72, 2, &iqs624.HallAtiSettings_CH2_CH3.ATISettings, I2C_Stop);
 			}
 			// Stop running
-//			else if ((abs(deltaCH2) < STOP_THRESHOLD) && (abs(deltaCH3) < STOP_THRESHOLD + 50))
-			else if ((abs(deltaCH2) < STOP_THRESHOLD) && (abs(deltaCH3) < (STOP_THRESHOLD + 150)))
+//			else if ((abs(long long)((deltaCH2) < STOP_THRESHOLD)) && (abs(long long)((deltaCH3) < STOP_THRESHOLD + 50)))
+			else if ((abs((long long)(deltaCH2)) < STOP_THRESHOLD) && (abs((long long)(deltaCH3)) < (STOP_THRESHOLD + 150)))
 			{
 				doneWithCH2 = true;
-				//Serial.println("Stop stop now!");
+				Serial.println("Stop stop now!");
 			}
 		}
 		// otherwise we step the base values
-		else if ((abs(deltaCH2) > BASE_THRESHOLD)){
+		else if (abs((long long)(deltaCH2)) > BASE_THRESHOLD){
 
-			if ((abs(deltaCH2) > STOP_THRESHOLD))
+			if (abs((long long)(deltaCH2)) > STOP_THRESHOLD)
 			{
 				// Let us move the target
 				if(deltaCH2 < 0){
@@ -3378,10 +3437,10 @@ void run_ati_algo(void)
 				i2c.write(0x72, 2, &iqs624.HallAtiSettings_CH2_CH3.ATISettings, I2C_Stop);
 			}
 			// Stop running - let the stop condition also look at channel 3
-			else if ((abs(deltaCH2) < STOP_THRESHOLD) && (abs(deltaCH3) < (STOP_THRESHOLD + 150)))
+			else if ((abs((long long)(deltaCH2)) < STOP_THRESHOLD) && (abs((long long)(deltaCH3)) < (STOP_THRESHOLD + 150)))
 			{
 				doneWithCH2 = true;
-				//Serial.println("Stop stop now!");
+				Serial.println("Stop stop now!");
 			}
 		}
 
@@ -3400,7 +3459,7 @@ void run_ati_algo(void)
 			setTimer(&Mode_Switch_Timer);
 
 			doneWithCH2 = false;
-    /*
+
 			Serial.println("Stepping out!");
 
 			Serial.println("Settings:");
@@ -3408,11 +3467,11 @@ void run_ati_algo(void)
 			Serial.println(iqs624.HallAtiSettings_CH2_CH3.ATI_Target);
 			Serial.println(iqs624.HallAtiSettings_CH4_CH5.ATI_Base);
 			Serial.println(iqs624.HallAtiSettings_CH4_CH5.ATI_Target);
-    */
+
 			// Save values in EEPROM
-			EEPROM.eeprom_write_byte(ATI_FLAG_ADDRESS, 0x01);
-			EEPROM.eeprom_write_byte(HALL_ATI_CH2_CH3_ADDRESS, iqs624.HallAtiSettings_CH2_CH3.ATISettings);
-			EEPROM.eeprom_write_byte(HALL_ATI_CH4_CH5_ADDRESS, iqs624.HallAtiSettings_CH4_CH5.ATISettings);
+			eeprom_write_byte(ATI_FLAG_ADDRESS, 0x01);
+			eeprom_write_byte(HALL_ATI_CH2_CH3_ADDRESS, iqs624.HallAtiSettings_CH2_CH3.ATISettings);
+			eeprom_write_byte(HALL_ATI_CH4_CH5_ADDRESS, iqs624.HallAtiSettings_CH4_CH5.ATISettings);
 
 			break;
 		}
@@ -3493,12 +3552,12 @@ void calibration(void)
 
 			ch2Old = initCH2;
 
-    /*
+
 			Serial.println(initCH2);
 			Serial.println(initCH3);
 			Serial.println(initCH4);
 			Serial.println(initCH5);
-    */
+
 		}
 
 		// Get Max and min values
@@ -3540,11 +3599,11 @@ void calibration(void)
 		// Obtain Quads
 		quads = (Quads_t)iqs624.HallRatioSettings.Quadrature;
 
-//		if(counter < 55 && (abs(ch2Old*1.0 - iqs624.AvgCh[2].Ch*1.0) > 9)){
-		if((abs(ch2Old*1.0 - iqs624.AvgCh[2].Ch*1.0) > 8)){
+//		if(counter < 55 && (abs(long long)((ch2Old*1.0 - iqs624.AvgCh[2].Ch*1.0) > 9))){
+		if(abs((long long)(ch2Old*1.0 - iqs624.AvgCh[2].Ch*1.0)) > 8){
 
 			ch2Old = iqs624.AvgCh[2].Ch;
-			//Serial.println(counter);
+			Serial.println(counter);
 
 
 			// Check quads
@@ -3556,7 +3615,7 @@ void calibration(void)
 					{
 						counter = 0;
 						binCounter_1++;
-						//Serial.println("Bin Quad 1");
+						Serial.println("Bin Quad 1");
 					}
 
 					break;
@@ -3567,7 +3626,7 @@ void calibration(void)
 					{
 						counter = 0;
 						binCounter_2++;
-						//Serial.println("Bin Quad 2");
+						Serial.println("Bin Quad 2");
 					}
 
 					break;
@@ -3578,7 +3637,7 @@ void calibration(void)
 					{
 						counter = 0;
 						binCounter_3++;
-						//Serial.println("Bin Quad 3");
+						Serial.println("Bin Quad 3");
 					}
 
 					break;
@@ -3589,7 +3648,7 @@ void calibration(void)
 					{
 						counter = 0;
 						binCounter_4++;
-						//Serial.println("Bin Quad 4");
+						Serial.println("Bin Quad 4");
 					}
 
 					break;
@@ -3606,7 +3665,7 @@ void calibration(void)
 
 		if(first)
 		{
-			//Serial.println("Next 1");
+			Serial.println("Next 1");
 			first = false;
 			counter = 0;
 
@@ -3638,17 +3697,17 @@ void calibration(void)
 		nCH4 = ((maxCH4*1.0/iqs624.AvgCh[4].Ch*1.0)-1.0)/minCH4;
 		nCH5 = ((maxCH5*1.0/iqs624.AvgCh[5].Ch*1.0)-1.0)/minCH5;
 
-		if((abs(nCH4-0.5) < dP1))
+		if(abs((long long)(nCH4-0.5)) < dP1)
 		{
-			dP1 = abs(nCH4-0.5);
+			dP1 = abs((long long)(nCH4-0.5));
 			fnCH2 = nCH2;
 			fnCH4 = nCH4;
-			//Serial.println(dP1);
+			Serial.println(dP1);
 		}
 
-		if((abs(nCH5-0.5) < dP2))
+		if(abs((long long)(nCH5-0.5)) < dP2)
 		{
-			dP2 = abs(nCH5-0.5);
+			dP2 = abs((long long)(nCH5-0.5));
 			fnCH3 = nCH3;
 			fnCH5 = nCH5;
 		}
@@ -3664,7 +3723,7 @@ void calibration(void)
 				thetaA = asin(2.0*(fnCH4-fnCH2));
 				thetaB = asin(2.0*(fnCH5-fnCH3));
 
-				theta = (abs(thetaA) + abs(thetaB))/2.0;
+				theta = (abs((long long)(thetaA)) + abs((long long)(thetaB)))/2.0;
 
 				cosPhase = (uint8_t)(cos(theta)*256.0);
 				sinPhase = (uint8_t)(sin(theta)*256.0);
@@ -3676,10 +3735,10 @@ void calibration(void)
 				buffer[1] = cosPhase;
 				i2c.write(HALL_SIN, 2, buffer, I2C_Stop);
 
-				// Save to eeprom
-				EEPROM.eeprom_write_byte(WRITE_FLAG_ADDRESS, 0x01);
-				EEPROM.eeprom_write_byte(COS_PHASE_ADDRESS, cosPhase);
-				EEPROM.eeprom_write_byte(SINE_PHASE_ADDRESS, sinPhase);
+				// Save to EEPROM
+				eeprom_write_byte(WRITE_FLAG_ADDRESS, 0x01);
+				eeprom_write_byte(COS_PHASE_ADDRESS, cosPhase);
+				eeprom_write_byte(SINE_PHASE_ADDRESS, sinPhase);
 
 				// Reset variables
 				binCounter_1 = 0;
@@ -3723,11 +3782,11 @@ void calibration(void)
 		quads = (Quads_t)iqs624.HallRatioSettings.Quadrature;
 
 		// Check the delta for movement
-//		if(counter < 55 && (abs(ch2Old*1.0 - iqs624.AvgCh[2].Ch*1.0) > 9)){
-		if((abs(ch2Old*1.0 - iqs624.AvgCh[2].Ch*1.0) > 9)) {
+//		if(counter < 55 && (abs(long long)((ch2Old*1.0 - iqs624.AvgCh[2].Ch*1.0) > 9))){
+		if(abs((long long)((ch2Old*1.0 - iqs624.AvgCh[2].Ch*1.0))) > 9) {
 //			counter++;
 			ch2Old = iqs624.AvgCh[2].Ch;
-			//Serial.println(counter);
+			Serial.println(counter);
 
 			// Check quads
 			switch(quads)
@@ -3786,9 +3845,9 @@ void calibration(void)
 
 		sprintf(display_string, "fail");
 
-		EEPROM.eeprom_write_byte(WRITE_FLAG_ADDRESS, 0x00);
-		EEPROM.eeprom_write_byte(COS_PHASE_ADDRESS, 0);
-		EEPROM.eeprom_write_byte(SINE_PHASE_ADDRESS, 0);
+		eeprom_write_byte(WRITE_FLAG_ADDRESS, 0x00);
+		eeprom_write_byte(COS_PHASE_ADDRESS, 0);
+		eeprom_write_byte(SINE_PHASE_ADDRESS, 0);
 
 		// Go to Switch mode state
 		Loop = Switch_Mode;
@@ -3836,10 +3895,10 @@ uint8_t setup_iqs625()
     res |= i2c.write(DEV_SETTINGS+2, 2, buffer, I2C_Repeat_Start);
 
     // Check to see if phase angles were written
-    if(EEPROM.eeprom_read_byte(WRITE_FLAG_ADDRESS) == 0x01)
+    if(eeprom_read_byte(WRITE_FLAG_ADDRESS) == 0x01)
     {
-      buffer[0] = EEPROM.eeprom_read_byte(SINE_PHASE_ADDRESS);
-      buffer[1] = EEPROM.eeprom_read_byte(COS_PHASE_ADDRESS);
+      buffer[0] = eeprom_read_byte(SINE_PHASE_ADDRESS);
+      buffer[1] = eeprom_read_byte(COS_PHASE_ADDRESS);
       res |= i2c.write(HALL_SIN, 2, buffer, I2C_Repeat_Start);
     }
     else
@@ -3852,10 +3911,10 @@ uint8_t setup_iqs625()
     }
 
     // Write Settings if valid
-    if(EEPROM.eeprom_read_byte(ATI_FLAG_ADDRESS) == 0x01)
+    if(eeprom_read_byte(ATI_FLAG_ADDRESS) == 0x01)
     {
-      iqs625.HallAtiSettings_CH2_CH3.ATISettings = EEPROM.eeprom_read_byte(HALL_ATI_CH2_CH3_ADDRESS);
-      iqs625.HallAtiSettings_CH4_CH5.ATISettings = EEPROM.eeprom_read_byte(HALL_ATI_CH4_CH5_ADDRESS);
+      iqs625.HallAtiSettings_CH2_CH3.ATISettings = eeprom_read_byte(HALL_ATI_CH2_CH3_ADDRESS);
+      iqs625.HallAtiSettings_CH4_CH5.ATISettings = eeprom_read_byte(HALL_ATI_CH4_CH5_ADDRESS);
       res |= i2c.write(0x72, 2, &iqs625.HallAtiSettings_CH2_CH3.ATISettings, I2C_Repeat_Start);
     }
 
@@ -4078,7 +4137,7 @@ void intervalRelMode(bool *refreshDisplay)
     display_number = interval_size;
     displayState = Display_String;
     sprintf(display_string, "%c%c%c%c",'R','E','L',' ');
-   //disp.write(display_string);
+    //disp.write(display_string);
     delay(1000);
     clear_mode_leds();
     *refreshDisplay = true;
@@ -4226,7 +4285,9 @@ void arrowMode(bool *refreshDisplay)
       setTimer(&Mode_Switch_Timer);
     }
     else
+      {
       //disp.writeError(res);
+      }
   }
 
   // Reset display timeout to default
@@ -4354,5 +4415,3 @@ void init_mode_leds()
 		digitalWrite(Leds[i], LOW);
 	}
 }
-
-
