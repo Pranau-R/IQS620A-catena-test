@@ -781,7 +781,10 @@ typedef struct IQS625 {
 #define DO_RESEED				          0x01
 
 // RDY Pin for IQS620
-#define IQS62x_RDY  			        2
+#define IQS62x_RDY  			        D12
+
+// Global defines
+#define	NO_RDY					(uint8_t)99  		// No RDY pin defined
 
 /* Setup Registers */
 

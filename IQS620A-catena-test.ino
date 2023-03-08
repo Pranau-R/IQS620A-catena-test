@@ -134,6 +134,18 @@ typedef enum Quads {
 	Quad_3 = 3
 }Quads_t;
 
+/** Enum for RDY active low and active high or Polling */
+typedef enum RDY_Type {
+	Active_Low = 0,
+	Active_High = 1,
+	Polling = 2
+}RDY_Type_e;
+
+/** Enum for Comms size - 8bit or 16bit register */
+typedef enum {
+	Size_8_bit = 0,
+	Size_16_bit = 1
+}Comms_Size_e;
 
 /*	Global Variables	---------------------------------------------------------*/
 
@@ -171,6 +183,12 @@ Button_state_e aux_button = Released;
 
 // Test Display
 //Display disp = Display();
+
+RDY_Type_e _RDY_Type;
+volatile bool _RDY_Window;
+bool _Timeout;
+uint32_t _commsSpeed;
+Comms_Size_e _commsSize;
 
 //ProxFusion IC's
 IQS620_t iqs620;				  // Create variable for iqs620
@@ -228,14 +246,40 @@ bool first = true; // First calibration entry
 uint8_t algoSM = 0;
 uint8_t littleSM = 0;
 bool modeEntry = true;
+/**
+ * @brief	Check whether this device is RDY. We see if the interrupt set it to ready or if the RDY is active
+ * @TODO	Still need to be able to feed in the user's own callback
+ * @param	None
+ * @retval	[bool] is this device RDY (true) or not (false)
+ */
+bool isDeviceReady(void)
+    {
+    bool tempWindow = false;
+
+    if(IQS62x_RDY == D12 || IQS62x_RDY == D6)
+        {
+        tempWindow = (_RDY_Window || (!(bool)(digitalRead(IQS62x_RDY) ^ (uint8_t)_RDY_Type))); // || this->_RDY_Type == Polling);
+        _RDY_Window = false;
+        }
+    else if(IQS62x_RDY != NO_RDY)
+        tempWindow = ((!(bool)(digitalRead(IQS62x_RDY) ^ (uint8_t)_RDY_Type))); //|| this->_RDY_Type == Polling);
+
+    return tempWindow;
+    }
 
 // Global to indicate that calibration was done.
 
-bool writeRegister(uint16_t command, uint8_t *pData)
-	{
+bool writeRegister(uint16_t command, uint8_t* pData)
+    {
     Wire.beginTransmission((uint8_t) I2C_ADDRESS);
     Wire.write(command);
-    Wire.write(pData);
+
+    // No send the number of bytes required to write
+    for(uint8_t i = 0; (i < sizeof(pData)); i++)
+        {
+        // Send each required byte
+        Wire.write(pData[i]);
+        }
 
     if (Wire.endTransmission() != 0)
         {
@@ -248,33 +292,54 @@ bool writeRegister(uint16_t command, uint8_t *pData)
 bool readRegisters(uint16_t command, std::uint8_t *pBuffer, size_t nBuffer)
     {
     if (pBuffer == nullptr || nBuffer > 32)
+        {
+        // Serial.println("Line : 297");
         return false;
+        }
 
     Wire.beginTransmission((uint8_t) I2C_ADDRESS);
     if (Wire.write((uint8_t)command) != 1)
         {
+        // Serial.println("Line : 304");
         return false;
         }
     if (Wire.endTransmission() != 0)
         {
+        // Serial.println("Line : 309");
         return false;
         }
 
     auto nReadFrom = Wire.requestFrom((uint8_t) I2C_ADDRESS, std::uint8_t(nBuffer));
 
     if (nReadFrom != nBuffer)
+        {
+        // Serial.println("Line : 316");
         return false;
+        }
+
     auto const nResult = unsigned(Wire.available());
 
     if (nResult > nBuffer)
+        {
+        // Serial.println("Line : 324");
         return false;
+        }
 
     for (unsigned i = 0; i < nResult; ++i)
+        {
+//        Serial.println("Line : 330");
         pBuffer[i] = Wire.read();
+        // Serial.print("pBuffer = ");
+        // Serial.println(pBuffer[i]);
+        }
 
     if (nResult != nBuffer)
+        {
+        // Serial.println("Line : 336");
         return false;
+        }
 
+    // Serial.println("Line : 340");
     return true;
     }
 
@@ -286,17 +351,33 @@ void setup()
  
 //#ifdef DEBUG
 	//Setup serial comms
-	Serial.begin(9600);
+	Serial.begin(115200);
 //#endif
 
 	Wire.begin();
+    while(!Serial);
+
+	// Setup the RDY pin
+    pinMode(IQS62x_RDY, OUTPUT);
+	digitalWrite(IQS62x_RDY, HIGH);
+	pinMode(IQS62x_RDY, INPUT);
+	digitalWrite(IQS62x_RDY, HIGH);
+
+    _RDY_Type = Polling;
+    _RDY_Window = false;
 
     Serial.println ("**** This is an Example for IQS620AEV1 ****");
 	// Check which IC we are using
-	while(!Wire.available());	// Wait for device to begome ready
+//	while(!isDeviceReady());	// Wait for device to begome ready
 
-	// Get the Version info
-	Wire.read();
+  	// Get the Version info
+  	readRegisters(VERSION_INFO, buffer, sizeof(buffer));
+//    for(uint8_t i = 0; (i < sizeof(buffer)); i++)
+//        {
+//        Serial.print("buffer = ");
+//        Serial.println(buffer[i]);
+//        }
+
 	// Set the appropriate IC
 	if(buffer[0] == IQS620_PRODUCT_NR)
 	{
@@ -330,7 +411,7 @@ void setup()
 	iqs_setup();
 
 	// Set the appropriate mode led
-	digitalWrite(Leds[(uint8_t)Mode], HIGH);
+//	digitalWrite(Leds[(uint8_t)Mode], HIGH);
 
 	//disp.write(display_number = (((uint8_t)Mode%4)+1)*1111);    // Write mode to display
 	//Serial.print("Mode : ");
@@ -341,11 +422,11 @@ void setup()
 
 	ErrorTimer.Timer_counter = THREE_SEC;			// 3s timer
 
-	MainTimer.Timer_counter = ONE_SEC;      // 1s timer
+  MainTimer.Timer_counter = ONE_SEC;      // 1s timer
 
 	ButtonTimer.Timer_counter = 300;			// 300ms timer
 
-	displayState = Display_Int;					// By default display an int
+	// displayState = Display_Int;					// By default display an int
 }
 
 // The loop function is called in an endless loop
@@ -357,21 +438,21 @@ void loop()
 
 	// Read IQS device for information
 	// Acquire all the necessary data
-	if(Wire.available())
+//	if(isDeviceReady())
 	{
 		if(ICType == IQS620)
 		{
 			// Read version number to insure we still have the correct device attached - otherwise, do setup
-			res = Wire.read();
+			res = readRegisters(VERSION_INFO, buffer, sizeof(buffer));
 
 			// System flags, Global Events and PXS UI Flags - 9 bytes
-			res |= Wire.read();
+			res |= readRegisters(SYSTEM_FLAGS, &iqs620.SystemFlags.SystemFlags, sizeof(&iqs620.SystemFlags.SystemFlags));
 
 			// Read PXS Channel Data - 12 bytes
-			res |= Wire.read();
+			res |= readRegisters(CHANNEL_DATA, &iqs620.Ch[0].Ch_Low, sizeof(&iqs620.Ch[0].Ch_Low));
 
 			// Read LTA value of Channel 1 for Movement mode
-			res |= Wire.read();
+			res |= readRegisters(LTA+2, &iqs620.LTA1.Ch_Low, sizeof(&iqs620.LTA1.Ch_Low));
 
 			// Set the appropriate IC
 			if(buffer[0] == IQS620_PRODUCT_NR)
@@ -414,16 +495,16 @@ void loop()
 		else if(ICType == IQS620n)
 		{
 			// Read version number to insure we still have the correct device attached - otherwise, do setup
-			res = Wire.read();
+			res = readRegisters(VERSION_INFO, buffer, sizeof(buffer));
 
 			// System flags, Global Events and PXS UI Flags - 9 bytes
-			res |= Wire.read();
+			res |= readRegisters(SYSTEM_FLAGS, &iqs620n.SystemFlags.SystemFlags, sizeof(&iqs620n.SystemFlags.SystemFlags));
 
 			// Read PXS Channel Data - 12 bytes
-			res |= Wire.read();
+			res |= readRegisters(CHANNEL_DATA, &iqs620n.Ch[0].Ch_Low, sizeof(&iqs620n.Ch[0].Ch_Low));
 
 			// Read LTA value of Channel 1 for Movement mode
-			res |= Wire.read();
+			res |= readRegisters(LTA+2, &iqs620n.LTA1.Ch_Low, sizeof(&iqs620n.LTA1.Ch_Low));
 
 			// Set the appropriate IC
 			if(buffer[0] == IQS620_PRODUCT_NR)
@@ -862,19 +943,19 @@ void process_IQS620_events()
 		break;
 
 		// Mode 2 - SAR Relatief Mode
-	case Mode_2:
-		movement_raw_mode();
-		break;
+	// case Mode_2:
+	// 	movement_raw_mode();
+	// 	break;
 
-		// Mode 3 - Metal Raw Mode
-	case Mode_3:
-		temp_mode();
-		break;
+	// 	// Mode 3 - Metal Raw Mode
+	// case Mode_3:
+	// 	temp_mode();
+	// 	break;
 
-		// Mode 4 - ProxSense Mode
-	case Mode_4:
-		hall_raw_mode();
-		break;
+	// 	// Mode 4 - ProxSense Mode
+	// case Mode_4:
+	// 	hall_raw_mode();
+	// 	break;
 
 	default:
 		// error
@@ -910,22 +991,22 @@ void process_IQS620n_events()
 	// Mode 1 - Multi Mode
 	case Mode_1:
 		nsar_raw_mode();
-		break;
+//		break;
 
 		// Mode 2 - SAR Relatief Mode
-	case Mode_2:
-		nmovement_raw_mode();
-		break;
+	// case Mode_2:
+	// 	nmovement_raw_mode();
+	// 	break;
 
-		// Mode 3 - Metal Raw Mode
-	case Mode_3:
-		ntemp_mode();
-		break;
+	// 	// Mode 3 - Metal Raw Mode
+	// case Mode_3:
+	// 	ntemp_mode();
+	// 	break;
 
-		// Mode 4 - ProxSense Mode
-	case Mode_4:
-		nhall_raw_mode();
-		break;
+	// 	// Mode 4 - ProxSense Mode
+	// case Mode_4:
+	// 	nhall_raw_mode();
+	// 	break;
 
 	default:
 		// error
@@ -1364,7 +1445,7 @@ void check_mode_button()
 		// and set time
 		if(mode_button == Btn_LongPress && ICType == IQS624 && modeButton)
 		{
-			Mode = Mode_5;
+//			Mode = Mode_5;
 
 			first = true;
 
@@ -1396,7 +1477,7 @@ void iqs_setup()
   setTimer(&MainTimer);
 
   // Wait for IC to become ready - a timeout should exit this
-  while(!Wire.available());
+//  while(!isDeviceReady());
 
   if(ICType == IQS620)
   {
@@ -1506,30 +1587,30 @@ uint8_t setup_iqs620()
 {
   uint8_t res = 0;
 
-  while(!Wire.available());
+//  while(!isDeviceReady());
   
-    res |= Wire.write(DEV_SETTINGS);
+    res |= writeRegister(DEV_SETTINGS, (uint8_t *)DevSetup);
 
-    res |= Wire.write(PXS_SETTINGS_0);
+    res |= writeRegister(PXS_SETTINGS_0, (uint8_t *)PXS_Setup_0);
 
-    res |= Wire.write(PXS_SETTINGS_1);
+    res |= writeRegister(PXS_SETTINGS_1, (uint8_t *)PXS_Setup_1);
 
-    res |= Wire.write(PXS_UI_SETTINGS);
+    res |= writeRegister(PXS_UI_SETTINGS, (uint8_t *)PXSUi);
 
-    res |= Wire.write(SAR_UI_SETTINGS);
+    res |= writeRegister(SAR_UI_SETTINGS, (uint8_t *)SARUi);
 
-    res |= Wire.write(METAL_UI_SETTINGS);
+    res |= writeRegister(METAL_UI_SETTINGS, (uint8_t *)MetalDetect);
 
-    res |= Wire.write(HALL_SENS_SETTINGS);
+    res |= writeRegister(HALL_SENS_SETTINGS, (uint8_t *)Hall_Sens);
 
-    res |= Wire.write(HALL_UI_SETTINGS);
+    res |= writeRegister(HALL_UI_SETTINGS, (uint8_t *)Hall_UI);
 
     // Wait for Redo Ati to complete
     do {
       // Wait for device to become ready
-      while(!Wire.available());
+//      while(!isDeviceReady());
 
-      res |= Wire.read();
+      res |= readRegisters(SYSTEM_FLAGS, &iqs620.SystemFlags.SystemFlags, sizeof(&iqs620.SystemFlags.SystemFlags));
     } while (!res && iqs620.SystemFlags.InAti);
   
   return res;
@@ -1706,34 +1787,40 @@ uint8_t setup_iqs620n()
 {
   uint8_t res = 0;
 
-  while(!Wire.available());
+//  while(!isDeviceReady());
 
-    res |= Wire.write(DEV_SETTINGS);
+    res |= writeRegister(DEV_SETTINGS, (uint8_t *)nDevSetup);
 
-    res |= Wire.write(PXS_SETTINGS_0);
+    res |= writeRegister(PXS_SETTINGS_0, (uint8_t *)nPXS_Setup_0);
 
-    res |= Wire.write(PXS_SETTINGS_1);
+    res |= writeRegister(PXS_SETTINGS_1, (uint8_t *)nPXS_Setup_1);
 
-    res |= Wire.write(PXS_UI_SETTINGS);
+    res |= writeRegister(PXS_UI_SETTINGS, (uint8_t *)nPXSUi);
 
-    res |= Wire.write(SAR_UI_SETTINGS);
+    res |= writeRegister(SAR_UI_SETTINGS, (uint8_t *)nSARUi);
 
-    res |= Wire.write(METAL_UI_SETTINGS);
+    res |= writeRegister(METAL_UI_SETTINGS, (uint8_t *)nMetalDetect);
 
-    res |= Wire.write(HALL_SENS_SETTINGS);
+    res |= writeRegister(HALL_SENS_SETTINGS, (uint8_t *)nHall_Sens);
 
-    res |= Wire.write(HALL_UI_SETTINGS);
+    res |= writeRegister(HALL_UI_SETTINGS, (uint8_t *)nHall_UI);
 
-    res |= Wire.write(TEMP_UI_SETTINGS);
+    res |= writeRegister(TEMP_UI_SETTINGS, (uint8_t *)nTemp_UI);
 
     // Wait for Redo Ati to complete
     do {
       // Wait for device to become ready
-      while(!Wire.available());
+//      while(!isDeviceReady());
 
-      res |= Wire.read();
+      res |= readRegisters(SYSTEM_FLAGS, &iqs620n.SystemFlags.SystemFlags, sizeof(&iqs620n.SystemFlags.SystemFlags));
+      
+    //   Serial.print("res : ");
+    //   Serial.println(res);
+    //   Serial.print("InAti : ");
+    //   Serial.println(iqs620n.SystemFlags.InAti);
     } while (!res && iqs620n.SystemFlags.InAti);
   
+//   Serial.println("Line 1823");
   return res;
 }
 
