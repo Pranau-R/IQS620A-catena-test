@@ -1,8 +1,8 @@
 #include "Arduino.h"
 #include "IQS62x.h"
-#include "IQS620_Init.h"
 #include "Types.h"
 #include "limits.h"
+#include "MCCI_I2C.h"
 #include <stm32_eeprom.h>
 #include <Wire.h>
 
@@ -14,31 +14,6 @@
 #define THREE_SEC   3000
 #define	TWELVE_SEC  12000
 #define	MS_5        5
-
-#define FERRITE
-// fun
-
-// Debug with serial comms
- #define DEBUG
-
-// Define if absolute temperature, or delta temp
-#define	ABS_TEMP
-
-// Beta
-#define BETA        1.0
-
-// Create constants to determine the ATI Settings
-#define COUNT_VALUE	                    1200
-#define BASE_THRESHOLD                  500
-#define STOP_THRESHOLD                  100
-
-// Define Addresses for EEPROM
-#define WRITE_FLAG_ADDRESS              0x00
-#define COS_PHASE_ADDRESS               0x01
-#define SINE_PHASE_ADDRESS              0x02
-#define ATI_FLAG_ADDRESS                0x03
-#define HALL_ATI_CH2_CH3_ADDRESS        0x04
-#define HALL_ATI_CH4_CH5_ADDRESS        0x05
 
 /*  Typedefs        ---------------------- ----------------------------------------*/
 
@@ -54,9 +29,7 @@ typedef enum Button_state
     Touch,
     Pressed,
     Released,
-    Double_Tap,
-    Btn_Timeout,
-    Btn_LongPress
+    Btn_Timeout
     } Button_state_e;
 
 // Enum to show button presses
@@ -69,16 +42,8 @@ typedef enum Loop_state
 // Enum to determine what to show on screen
 typedef enum IC_Type
     {
-    IQS620n
+    IQS620n = 1
     } IC_Type_e;
-
-typedef enum Quads
-    {
-    Quad_1 = 0,
-    Quad_2 = 1,
-    Quad_4 = 2,
-    Quad_3 = 3
-    }Quads_t;
 
 /** Enum for RDY active low and active high or Polling */
 typedef enum RDY_Type
@@ -88,13 +53,6 @@ typedef enum RDY_Type
     Polling = 2
     }RDY_Type_e;
 
-/** Enum for Comms size - 8bit or 16bit register */
-typedef enum
-    {
-    Size_8_bit = 0,
-    Size_16_bit = 1
-    }Comms_Size_e;
-
 /*  Global Variables    ---------------------------------------------------------*/
 
 // The Mode state of the demo
@@ -103,13 +61,13 @@ Mode_e Mode;
 // What type of IC is this?
 IC_Type_e ICType;
 
+cI2C gI2C;
+
 // Timer 1
 Timer_t Mode_Switch_Timer   = {0};          // Mode switch timer
 Timer_t ErrorTimer          = {0};          // Error Timer
 Timer_t MainTimer           = {0};          // Error Timer
 Timer_t ButtonTimer         = {0};          // Button double tap Timer
-Timer_t CalibTimer          = {0};          // Calibration Timeout Timer
-Timer_t CoilTimer           = {0};          // Coil saturation timer
 
 // Which state of the loop are we in?
 Loop_state_e Loop = Run;
@@ -122,142 +80,21 @@ Button_state_e aux_button = Released;
 
 RDY_Type_e _RDY_Type;
 volatile bool _RDY_Window;
-bool _Timeout;
-uint32_t _commsSpeed;
-Comms_Size_e _commsSize;
 
 //ProxFusion IC's
 IQS620n_t iqs620n;              // Create variable for iqs620A
 
 // A number to display
-int16_t display_number = 0;
-
-// A String to display
-char display_string[4] = {0};
-
-// Indicate first entry to multi mode
-bool getTempReference = true;
+int16_t printNumber = 0;
 
 // Indicate chip is ready for polling
 bool chipReady = false;
-bool pushed = false;
-bool pushedflag = false;
-// Temperature reference
-uint16_t TemperatureReference = 0;
-uint16_t Temperature = 0;
-int16_t deltaTemp = 0;
 
 // Buffer to read data into
 uint8_t buffer[20];
 
 // Create a mode button
 bool modeButton = false;
-
-// Flag to indicate whether we should do a setup of inductive sensor
-bool setupInductiveSensor = true;
-
-bool coilCheck = true;
-
-bool first = true; // First calibration entry
-uint8_t algoSM = 0;
-uint8_t littleSM = 0;
-bool modeEntry = true;
-/**
- * @brief	Check whether this device is RDY. We see if the interrupt set it to ready or if the RDY is active
- * @TODO	Still need to be able to feed in the user's own callback
- * @param	None
- * @retval	[bool] is this device RDY (true) or not (false)
- */
-bool isDeviceReady(void)
-    {
-    bool tempWindow = false;
-
-    if(IQS62x_RDY == D12 || IQS62x_RDY == D6)
-        {
-        tempWindow = (_RDY_Window || (!(bool)(digitalRead(IQS62x_RDY) ^ (uint8_t)_RDY_Type))); // || this->_RDY_Type == Polling);
-        _RDY_Window = false;
-        }
-    else if(IQS62x_RDY != NO_RDY)
-        tempWindow = ((!(bool)(digitalRead(IQS62x_RDY) ^ (uint8_t)_RDY_Type))); //|| this->_RDY_Type == Polling);
-
-    return tempWindow;
-    }
-
-// Global to indicate that calibration was done.
-
-bool writeRegister(uint16_t command, uint8_t* pData)
-    {
-    Wire.beginTransmission((uint8_t) I2C_ADDRESS);
-    Wire.write(command);
-
-    // No send the number of bytes required to write
-    for(uint8_t i = 0; (i < sizeof(pData)); i++)
-        {
-        // Send each required byte
-        Wire.write(pData[i]);
-        }
-
-    if (Wire.endTransmission() != 0)
-        {
-        return false;
-        }
-
-    return true;
-    }
-
-bool readRegisters(uint16_t command, std::uint8_t *pBuffer, size_t nBuffer)
-    {
-    if (pBuffer == nullptr || nBuffer > 32)
-        {
-        // Serial.println("Line : 297");
-        return false;
-        }
-
-    Wire.beginTransmission((uint8_t) I2C_ADDRESS);
-    if (Wire.write((uint8_t)command) != 1)
-        {
-        // Serial.println("Line : 304");
-        return false;
-        }
-    if (Wire.endTransmission() != 0)
-        {
-        // Serial.println("Line : 309");
-        return false;
-        }
-
-    auto nReadFrom = Wire.requestFrom((uint8_t) I2C_ADDRESS, std::uint8_t(nBuffer));
-
-    if (nReadFrom != nBuffer)
-        {
-        // Serial.println("Line : 316");
-        return false;
-        }
-
-    auto const nResult = unsigned(Wire.available());
-
-    if (nResult > nBuffer)
-        {
-        // Serial.println("Line : 324");
-        return false;
-        }
-
-    for (unsigned i = 0; i < nResult; ++i)
-        {
-        // Serial.println("Line : 330");
-        pBuffer[i] = Wire.read();
-        // Serial.print("pBuffer = ");
-        // Serial.println(pBuffer[i]);
-        }
-
-    if (nResult != nBuffer)
-        {
-        // Serial.println("Line : 336");
-        return false;
-        }
-
-    // Serial.println("Line : 340");
-    return true;
-    }
 
 //The setup function is called once at startup of the sketch
 void setup()
@@ -273,13 +110,18 @@ void setup()
     pinMode(IQS62x_RDY, INPUT);
     digitalWrite(IQS62x_RDY, HIGH);
 
+    delay(100);
+
     _RDY_Type = Polling;
     _RDY_Window = false;
 
-    Serial.println ("**** This is an Example for IQS620AEV1 ****");
+    Serial.println ("#### This is an Example for IQS620AEV1 ####");
 
     // Get the Version info
-    readRegisters(VERSION_INFO, buffer, sizeof(buffer));
+
+    uint8_t res = 0;
+    res = setup_iqs620n();
+    gI2C.readRegisters(VERSION_INFO, buffer, sizeof(buffer));
 
     // Set the appropriate IC
     if(buffer[0] == IQS620_PRODUCT_NR && buffer[1] == IQS620N_SOFTWARE_NR && buffer[2] == IQS620N_HARDWARE_NR)
@@ -289,16 +131,13 @@ void setup()
     // No valid IC type found
     else
         {
-        //disp.writeError(2);
-        Serial.println("Err invalid IC...");
+        Serial.println("Err invalid IC! Check wiring...");
         while(1);
         }
-    // Serial.println(ICType);
+
     // Do initial setup
     iqs_setup();
 
-    //disp.write(display_number = (((uint8_t)Mode%4)+1)*1111);    // Write mode to display
-    //Serial.print("Mode : ");
     delay(1000);
 
     // Initialise Mode timer
@@ -314,23 +153,21 @@ void setup()
 // The loop function is called in an endless loop
 void loop()
     {
-    //Add your repeated code here
-    bool refreshDisplay = false;
     uint8_t res = 0;
 
     if(ICType == IQS620n)
         {
         // Read version number to insure we still have the correct device attached - otherwise, do setup
-        res = readRegisters(VERSION_INFO, buffer, sizeof(buffer));
+        res = gI2C.readRegisters(VERSION_INFO, buffer, sizeof(buffer));
 
         // System flags, Global Events and PXS UI Flags - 9 bytes
-        res |= readRegisters(SYSTEM_FLAGS, &iqs620n.SystemFlags.SystemFlags, sizeof(&iqs620n.SystemFlags.SystemFlags));
+        res |= gI2C.readRegisters(SYSTEM_FLAGS, &iqs620n.SystemFlags.SystemFlags, sizeof(&iqs620n.SystemFlags.SystemFlags));
 
         // Read PXS Channel Data - 12 bytes
-        res |= readRegisters(CHANNEL_DATA, &iqs620n.Ch[0].Ch_Low, sizeof(&iqs620n.Ch[0].Ch_Low));
+        res |= gI2C.readRegisters(CHANNEL_DATA, &iqs620n.Ch[0].Ch_Low, sizeof(&iqs620n.Ch[0].Ch_Low));
 
         // Read LTA value of Channel 1 for Movement mode
-        res |= readRegisters(LTA+2, &iqs620n.LTA1.Ch_Low, sizeof(&iqs620n.LTA1.Ch_Low));
+        res |= gI2C.readRegisters(LTA+2, &iqs620n.LTA1.Ch_Low, sizeof(&iqs620n.LTA1.Ch_Low));
         }
 
     // A read error occurred
@@ -339,9 +176,6 @@ void loop()
         // Serial.print("res : ");
         // Serial.println(res);
         }
-
-    // Now we write to display
-    refreshDisplay = true;
 
     // reset timer
     setTimer(&ErrorTimer);
@@ -380,11 +214,6 @@ void loop()
                 {
                 Loop = Run;	// go to run loop
                 }
-            // Always reset the getTemperatureReference flag
-            getTempReference = true;
-
-            // Get the reference degrees again
-            getDeg = true;
 
             break;
         default:;
@@ -463,8 +292,6 @@ void check_mode_button()
         // Next Mode
         Mode = Mode_1;
 
-        //disp.write((((uint8_t)Mode%4)+1)*1111);    // Write mode to display);
-
         // Go to Switch mode state
         Loop = Switch_Mode;
 
@@ -489,13 +316,10 @@ void iqs_setup()
 
     setTimer(&MainTimer);
 
-    // Wait for IC to become ready - a timeout should exit this
-    // while(!isDeviceReady());
-
     if (ICType == IQS620n)
         {
         Serial.println ("620n Found!");
-        delay(1000); //Wait here for device splash on disp
+        delay(1000); //Wait here for device splash on serial
         // setup device
         res = setup_iqs620n();
         }
@@ -503,8 +327,8 @@ void iqs_setup()
     // An error occured
     if(res)
         {
-        Serial.print("res: ");
-        Serial.println(res);
+        // Serial.print("res: ");
+        // Serial.println(res);
         }
     }
 
@@ -522,38 +346,28 @@ uint8_t setup_iqs620n()
     {
     uint8_t res = 0;
 
-    // while(!isDeviceReady());
+    res |= gI2C.writeRegister(DEV_SETTINGS, (uint8_t *)nDevSetup);
 
-    res |= writeRegister(DEV_SETTINGS, (uint8_t *)nDevSetup);
+    res |= gI2C.writeRegister(PXS_SETTINGS_0, (uint8_t *)nPXS_Setup_0);
 
-    res |= writeRegister(PXS_SETTINGS_0, (uint8_t *)nPXS_Setup_0);
+    res |= gI2C.writeRegister(PXS_SETTINGS_1, (uint8_t *)nPXS_Setup_1);
 
-    res |= writeRegister(PXS_SETTINGS_1, (uint8_t *)nPXS_Setup_1);
+    res |= gI2C.writeRegister(PXS_UI_SETTINGS, (uint8_t *)nPXSUi);
 
-    res |= writeRegister(PXS_UI_SETTINGS, (uint8_t *)nPXSUi);
+    res |= gI2C.writeRegister(SAR_UI_SETTINGS, (uint8_t *)nSARUi);
 
-    res |= writeRegister(SAR_UI_SETTINGS, (uint8_t *)nSARUi);
+    res |= gI2C.writeRegister(METAL_UI_SETTINGS, (uint8_t *)nMetalDetect);
 
-    res |= writeRegister(METAL_UI_SETTINGS, (uint8_t *)nMetalDetect);
+    res |= gI2C.writeRegister(HALL_SENS_SETTINGS, (uint8_t *)nHall_Sens);
 
-    res |= writeRegister(HALL_SENS_SETTINGS, (uint8_t *)nHall_Sens);
+    res |= gI2C.writeRegister(HALL_UI_SETTINGS, (uint8_t *)nHall_UI);
 
-    res |= writeRegister(HALL_UI_SETTINGS, (uint8_t *)nHall_UI);
-
-    res |= writeRegister(TEMP_UI_SETTINGS, (uint8_t *)nTemp_UI);
+    res |= gI2C.writeRegister(TEMP_UI_SETTINGS, (uint8_t *)nTemp_UI);
 
     // Wait for Redo Ati to complete
     do
         {
-        // Wait for device to become ready
-        // while(!isDeviceReady());
-
-        res |= readRegisters(SYSTEM_FLAGS, &iqs620n.SystemFlags.SystemFlags, sizeof(&iqs620n.SystemFlags.SystemFlags));
-        
-        Serial.print("res : ");
-        Serial.println(res);
-        Serial.print("InAti : ");
-        Serial.println(iqs620n.SystemFlags.InAti);
+        res |= gI2C.readRegisters(SYSTEM_FLAGS, &iqs620n.SystemFlags.SystemFlags, sizeof(&iqs620n.SystemFlags.SystemFlags));
         }
     while (!res && iqs620n.SystemFlags.InAti);
 
@@ -568,12 +382,13 @@ uint8_t setup_iqs620n()
  * @param	None
  * @retval	None
  */
-void nsar_raw_mode()
-	{
-	Serial.print("SAR counts:");
+ void nsar_raw_mode()
+    {
+    printNumber = iqs620n.Ch[0].Ch;  // Display Channel Data
+    Serial.print("SAR counts:");
     Serial.print("\t");
-    Serial.println(display_number);
-	}
+    Serial.println(printNumber);
+    }
 
 /**************************************************************************************************/
 /*                                                                                                */
