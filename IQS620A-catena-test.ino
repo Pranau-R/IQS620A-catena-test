@@ -15,6 +15,8 @@
 #define	TWELVE_SEC  12000
 #define	MS_5        5
 
+static const char sVersion[] = "1.0.0";
+
 /*  Typedefs        ---------------------- ----------------------------------------*/
 
 // Enum to move between modes for this arduino demo
