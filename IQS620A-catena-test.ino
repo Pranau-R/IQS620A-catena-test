@@ -6,7 +6,7 @@
 #include <stm32_eeprom.h>
 #include <Wire.h>
 
-/*  Global defines  -----------------------------------------------------------*/
+/*  Global defines      ----------------------------------------------------------*/
 
 #define	MS_500      500
 #define	ONE_SEC     1000
@@ -15,14 +15,20 @@
 #define	TWELVE_SEC  12000
 #define	MS_5        5
 
-static const char sVersion[] = "1.0.0";
+// Define if absolute temperature, or delta temp
+#define	ABS_TEMP
 
-/*  Typedefs        ---------------------- ----------------------------------------*/
+static const char sVersion[] = "1.1.0";
+
+/*  Typedefs        --------------------------------------------------------------*/
 
 // Enum to move between modes for this arduino demo
 typedef enum Modes
     {
-	Mode_1 = 0				// SAR Mode
+    Mode_1 = 0,          // SAR Mode
+    Mode_2 = 1,          // Movement Mode
+    Mode_3 = 2,          // Temp Mode
+    Mode_4 = 3           // Hall Mode
     } Mode_e;
 
 // Enum to show button presses
@@ -55,7 +61,7 @@ typedef enum RDY_Type
     Polling = 2
     }RDY_Type_e;
 
-/*  Global Variables    ---------------------------------------------------------*/
+/*  Global Variables    ----------------------------------------------------------*/
 
 // The Mode state of the demo
 Mode_e Mode;
@@ -88,6 +94,12 @@ IQS620n_t iqs620n;              // Create variable for iqs620A
 
 // A number to display
 int16_t printNumber = 0;
+
+// Indicate first entry to multi mode
+bool getTempReference = true;
+
+// Temperature reference
+uint16_t TemperatureReference = 0;
 
 // Indicate chip is ready for polling
 bool chipReady = false;
@@ -217,17 +229,20 @@ void loop()
                 Loop = Run;	// go to run loop
                 }
 
+            // Always reset the getTemperatureReference flag
+            getTempReference = true;
+
             break;
         default:;
         }
     }
 
 /**
- * @brief	Process the Events that the IQS620n production version reported to us. Here we will run a state machine
- * 			  to handle the different modes
+ * @brief Process the Events that the IQS620n production version reported to us. Here we will run a state machine
+ *        to handle the different modes
  * @description
- * @param	None
- * @retval	None
+ * @param   None
+ * @retval  None
  */
 void process_IQS620n_events()
     {
@@ -245,9 +260,24 @@ void process_IQS620n_events()
     // Run a state machine
     switch(Mode)
         {
-        // Mode 1 - Multi Mode
+        // Mode 1 - SAR Raw Mode
         case Mode_1:
             nsar_raw_mode();
+            break;
+
+        // Mode 2 - Movement Raw Mode
+        case Mode_2:
+            nmovement_raw_mode();
+            break;
+
+        // Mode 3 - Temperature Mode
+        case Mode_3:
+            ntemp_mode();
+            break;
+
+        // Mode 4 - Hall Raw Mode
+        case Mode_4:
+            nhall_raw_mode();
             break;
 
         default:
@@ -256,11 +286,11 @@ void process_IQS620n_events()
         }
     }
 
-/****************************************************************/
-/*                                                              */
-/*                                  Mode Helper Functions       */
-/*                                                              */
-/****************************************************************/
+/****************************************************************************************************/
+/*                                                                                                  */
+/*                                  Mode Helper Functions                                           */
+/*                                                                                                  */
+/****************************************************************************************************/
 
 /**
  * @brief	Check the mode switch button
@@ -292,7 +322,8 @@ void check_mode_button()
         mode_button = Released;	// No more touch on the button, move to next state
 
         // Next Mode
-        Mode = Mode_1;
+        Mode = (Mode_e)((uint8_t)Mode + 1);
+        if((uint8_t)Mode > (uint8_t)Mode_4) Mode = Mode_1;
 
         // Go to Switch mode state
         Loop = Switch_Mode;
@@ -377,12 +408,12 @@ uint8_t setup_iqs620n()
     }
 
 /**************************************************************************************************/
-/*									IQS620n MODE 1: SAR Raw Mode									 	                              */
+/*                                  IQS620n MODE 1: SAR Raw Mode                                  */
 /**************************************************************************************************/
 /**
- * @brief	SAR Mode helper
- * @param	None
- * @retval	None
+ * @brief   SAR Mode helper
+ * @param   None
+ * @retval  None
  */
  void nsar_raw_mode()
     {
@@ -390,6 +421,103 @@ uint8_t setup_iqs620n()
     Serial.print("SAR counts:");
     Serial.print("\t");
     Serial.println(printNumber);
+    }
+
+/**************************************************************************************************/
+/*                                  IQS620n MODE 2: Movement Raw Mode                             */
+/**************************************************************************************************/
+/**
+ * @brief   Movement Mode helper
+ * @param   None
+ * @retval  None
+ */
+void nmovement_raw_mode()
+    {
+    if(iqs620n.SARMetalFlags.Quick_Release)
+        {
+        printNumber = iqs620n.Ch[1].Ch;	// Display Channel 1 Data
+        Serial.print("Movement:  ");
+        Serial.println(printNumber);
+        }
+    else
+        {
+        Serial.println("Movement:  -");
+        }
+    }
+
+/**************************************************************************************************/
+/*                                  IQS620n MODE 3: Temperature Mode                              */
+/**************************************************************************************************/
+/**
+ * @brief   Temperature Mode helper
+ * @param   None
+ * @retval  None
+ */
+void ntemp_mode()
+    {
+#ifdef ABS_TEMP
+    const float a_b = 0.3333;   //281438.5;
+    const uint16_t c = 300;
+    float tempDelta = 0;
+    int16_t tempdec = 5;
+#endif
+    // Check if it is the first time coming into this mode - get temp reference
+    if(getTempReference)
+        {
+        // do not enter again
+        getTempReference = !getTempReference;
+        nget_temp_reference();
+        }
+
+#ifdef ABS_TEMP
+    tempDelta = (c-a_b*(float)iqs620n.Ch[3].Ch)/2;
+    tempdec = abs((long long)(tempDelta*10 - floor(tempDelta)*10));
+
+    Serial.print("Temperature: ");
+    Serial.print(tempDelta);
+    Serial.print("\tDelta: ");
+    Serial.print(tempdec);
+    Serial.println();
+#endif
+    }
+
+/**************************************************************************************************/
+/*                                  IQS620n MODE 4: Hall Raw Mode                                 */
+/**************************************************************************************************/
+/**
+ * @brief   Hall Raw Mode helper
+ * @param   None
+ * @retval  None
+ */
+void nhall_raw_mode()
+    {
+    printNumber = iqs620n.HallValue.HallValue;	// Display Hall Value
+
+    Serial.print("Hall-effect amplitude:  ");
+    Serial.print(printNumber);
+    Serial.print("\t");
+
+    if(iqs620n.HallFlags.Hall_N_S)
+        {
+        Serial.println("Direction: N");
+        }
+    else
+        {
+        Serial.println("Direction: S");
+        }
+    }
+
+/**************************************************************************************************/
+/*                                      Temperature                                               */
+/**************************************************************************************************/
+/**
+ * @brief   Get the temperature reference
+ * @param   None
+ * @retval  None
+ */
+void nget_temp_reference()
+    {
+    TemperatureReference = iqs620n.TempValue.TempValue;	// Get temperature Channel Data
     }
 
 /**************************************************************************************************/
