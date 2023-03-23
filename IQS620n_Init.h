@@ -33,6 +33,7 @@
 #define nPXS_SETTINGS1_5						0x18
 #define nPXS_SETTINGS1_6						0x18
 #define nPXS_SETTINGS1_7						0x19
+#define nPXS_SETTINGS1_8						0x40
 
 /* Change the Prox UI Settings */
 /* Memory Map Position 0x60 - 0x68 */

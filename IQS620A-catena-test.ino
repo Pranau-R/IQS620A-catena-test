@@ -8,17 +8,17 @@
 
 /*  Global defines      ----------------------------------------------------------*/
 
-#define	MS_500      500
-#define	ONE_SEC     1000
-#define	TWO_SEC     2000
+#define MS_500      500
+#define ONE_SEC     1000
+#define TWO_SEC     2000
 #define THREE_SEC   3000
-#define	TWELVE_SEC  12000
-#define	MS_5        5
+#define TWELVE_SEC  12000
+#define MS_5        5
 
 // Define if absolute temperature, or delta temp
-#define	ABS_TEMP
+#define ABS_TEMP
 
-static const char sVersion[] = "1.1.0";
+static const char sVersion[] = "1.1.0-pre1";
 
 /*  Typedefs        --------------------------------------------------------------*/
 
@@ -27,8 +27,7 @@ typedef enum Modes
     {
     Mode_1 = 0,          // SAR Mode
     Mode_2 = 1,          // Movement Mode
-    Mode_3 = 2,          // Temp Mode
-    Mode_4 = 3           // Hall Mode
+    Mode_3 = 2           // Temp Mode
     } Mode_e;
 
 // Enum to show button presses
@@ -121,8 +120,6 @@ void setup()
     // Setup the RDY pin
     pinMode(IQS62x_RDY, OUTPUT);
     digitalWrite(IQS62x_RDY, HIGH);
-    pinMode(IQS62x_RDY, INPUT);
-    digitalWrite(IQS62x_RDY, HIGH);
 
     delay(100);
 
@@ -178,10 +175,13 @@ void loop()
         res |= gI2C.readRegisters(SYSTEM_FLAGS, &iqs620n.SystemFlags.SystemFlags, sizeof(&iqs620n.SystemFlags.SystemFlags));
 
         // Read PXS Channel Data - 12 bytes
-        res |= gI2C.readRegisters(CHANNEL_DATA, &iqs620n.Ch[0].Ch_Low, sizeof(&iqs620n.Ch[0].Ch_Low));
+        res |= gI2C.readRegisters(CHANNEL0_DATA, &iqs620n.Ch[0].Ch_Low, sizeof(&iqs620n.Ch[0].Ch_Low));
 
         // Read LTA value of Channel 1 for Movement mode
         res |= gI2C.readRegisters(LTA+2, &iqs620n.LTA1.Ch_Low, sizeof(&iqs620n.LTA1.Ch_Low));
+
+        // Read Temperature Channel Data - 12 bytes
+        res |= gI2C.readRegisters(CHANNEL3_DATA, &iqs620n.Ch[3].Ch_Low, sizeof(&iqs620n.Ch[3].Ch_Low));
         }
 
     // A read error occurred
@@ -275,11 +275,6 @@ void process_IQS620n_events()
             ntemp_mode();
             break;
 
-        // Mode 4 - Hall Raw Mode
-        case Mode_4:
-            nhall_raw_mode();
-            break;
-
         default:
             // error
             break;
@@ -293,9 +288,9 @@ void process_IQS620n_events()
 /****************************************************************************************************/
 
 /**
- * @brief	Check the mode switch button
- * @param	None
- * @retval	None
+ * @brief   Check the mode switch button
+ * @param   None
+ * @retval  None
  */
 void check_mode_button()
     {
@@ -323,7 +318,8 @@ void check_mode_button()
 
         // Next Mode
         Mode = (Mode_e)((uint8_t)Mode + 1);
-        if((uint8_t)Mode > (uint8_t)Mode_4) Mode = Mode_1;
+        if((uint8_t)Mode > (uint8_t)Mode_3)
+            Mode = Mode_1;
 
         // Go to Switch mode state
         Loop = Switch_Mode;
@@ -339,7 +335,7 @@ void check_mode_button()
 
 /**
  * @brief  Function that sets up and initializes the IQS62x device with the desired
- *      settings
+ *         settings
  * @param None
  * @retval  None
  */
@@ -371,7 +367,7 @@ void iqs_setup()
 /*                                                                                                */
 /**************************************************************************************************/
 /**
- * @brief Check which setup we need to run for the IQS620n - capacitive
+ * @brief   Check which setup we need to run for the IQS620n - capacitive
  * @param
  * @retval  None
  */
@@ -461,63 +457,17 @@ void ntemp_mode()
     float tempDelta = 0;
     int16_t tempdec = 5;
 #endif
-    // Check if it is the first time coming into this mode - get temp reference
-    if(getTempReference)
-        {
-        // do not enter again
-        getTempReference = !getTempReference;
-        nget_temp_reference();
-        }
 
 #ifdef ABS_TEMP
     tempDelta = (c-a_b*(float)iqs620n.Ch[3].Ch)/2;
     tempdec = abs((long long)(tempDelta*10 - floor(tempDelta)*10));
+    tempDelta = tempDelta - 40;
 
     Serial.print("Temperature: ");
     Serial.print(tempDelta);
     Serial.print("\tDelta: ");
-    Serial.print(tempdec);
-    Serial.println();
+    Serial.println(tempdec);
 #endif
-    }
-
-/**************************************************************************************************/
-/*                                  IQS620n MODE 4: Hall Raw Mode                                 */
-/**************************************************************************************************/
-/**
- * @brief   Hall Raw Mode helper
- * @param   None
- * @retval  None
- */
-void nhall_raw_mode()
-    {
-    printNumber = iqs620n.HallValue.HallValue;	// Display Hall Value
-
-    Serial.print("Hall-effect amplitude:  ");
-    Serial.print(printNumber);
-    Serial.print("\t");
-
-    if(iqs620n.HallFlags.Hall_N_S)
-        {
-        Serial.println("Direction: N");
-        }
-    else
-        {
-        Serial.println("Direction: S");
-        }
-    }
-
-/**************************************************************************************************/
-/*                                      Temperature                                               */
-/**************************************************************************************************/
-/**
- * @brief   Get the temperature reference
- * @param   None
- * @retval  None
- */
-void nget_temp_reference()
-    {
-    TemperatureReference = iqs620n.TempValue.TempValue;	// Get temperature Channel Data
     }
 
 /**************************************************************************************************/
